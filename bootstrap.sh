@@ -65,7 +65,7 @@ export AUTO_ATTACH_TMUX="${AUTO_ATTACH_TMUX:-0}"
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb"
-export GLM51_SCRIPT_VERSION="markdown-20260601-sglang-tinker-merge-quant-v3.8"
+export GLM51_SCRIPT_VERSION="markdown-20260601-sglang-tinker-merge-quant-v3.9"
 # 若已有包含 ATOM PR355 代码的自定义镜像，在这里覆盖 SGLANG_IMAGE；官方镜像未必包含 atom 包。
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="sglang-glm51-fp8-atom-pr355"
@@ -341,7 +341,7 @@ export ATOM_REPO_HOST="${ATOM_REPO_HOST:-$ATOM_REPO_ROOT}"
 export ATOM_REPO_CONTAINER="${ATOM_REPO_CONTAINER:-/opt/ATOM}"
 export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/python:/opt/ATOM}"
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-${CONTROL_DIR:-/opt/glm51}}"
 export CONTROL_DIR="${CONTROL_DIR:-$CONTROL_PLANE_DIR}"
 export GLM51_OPT_DIR="${GLM51_OPT_DIR:-$CONTROL_PLANE_DIR}"
@@ -810,7 +810,7 @@ cat > "${GENERATED_SCRIPT_DIR}/glm51_resume.sh" <<'BASH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
 echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE[0]:-$0} pid=$$ pwd=$(pwd)"
 
 ########################################
@@ -819,7 +819,7 @@ echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="${BASE_IMAGE:-rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="${SGLANG_CONTAINER:-sglang-glm51-fp8-atom-pr355}"
 export LMEVAL_IMAGE="${LMEVAL_IMAGE:-lm-eval-harness:latest}"
@@ -846,7 +846,7 @@ export GLM5_REFERENCE_SCRIPTS_DIR="${GLM5_REFERENCE_SCRIPTS_DIR:-${CONTROL_DIR}/
 export GLM5_MERGE_QUANT_GPUS="${GLM5_MERGE_QUANT_GPUS:-0,1,2,3,4,5,6,7}"
 export GLM5_MERGE_QUANT_WORKERS_PER_GPU="${GLM5_MERGE_QUANT_WORKERS_PER_GPU:-8}"
 export GLM5_LOCAL_QUANT_ROOT="${GLM5_LOCAL_QUANT_ROOT:-${CONTAINER_WORKDIR}/glm5_local_quant}"
-export SGLANG_PORT="${SGLANG_PORT:-30000}"
+export SGLANG_PORT="${SGLANG_PORT:-7777}"
 export ATOM_REPO_URL="${ATOM_REPO_URL:-https://github.com/ROCm/ATOM.git}"
 export ATOM_REF="${ATOM_REF:-9427621d3dfdfac1c7820bb435b6d034083686ee}"
 export ATOM_REPO_ROOT="${ATOM_REPO_ROOT:-${CONTROL_DIR}/ATOM}"
@@ -8310,8 +8310,8 @@ export TMUX_SESSION="${TMUX_SESSION:-glm51}"
 export PREP_WINDOW="${PREP_WINDOW:-prep-download-build}"
 export SERVE_WINDOW="${SERVE_WINDOW:-sglang-serve}"
 export LMEVAL_WINDOW="${LMEVAL_WINDOW:-lm-eval}"
-export SGLANG_PORT="${SGLANG_PORT:-30000}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
+export SGLANG_PORT="${SGLANG_PORT:-7777}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
 export AUTOSTART_CHECK_INTERVAL_SECONDS="${AUTOSTART_CHECK_INTERVAL_SECONDS:-60}"
 export AUTOSTART_RESUME_WINDOW="autostart-resume"
 export AUTOSTART_OBSERVE_WINDOW="autostart-observe"
