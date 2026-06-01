@@ -13,7 +13,7 @@ Pin `RECIPE_REF` to a tag or commit when running an experiment. Do not use a mov
 
 ```bash
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-/data/glm51-control}"
-export RECIPE_REPO="${RECIPE_REPO:-https://github.com/<owner>/glm51-amd-runner}"
+export RECIPE_REPO="${RECIPE_REPO:-https://github.com/san-tian/glm51-amd-runner}"
 export RECIPE_REF="${RECIPE_REF:-v2026-06-01-tinker-merge-quant-v3}"
 export RECIPE_ARCHIVE_URL="${RECIPE_ARCHIVE_URL:-${RECIPE_REPO%.git}/archive/${RECIPE_REF}.tar.gz}"
 
