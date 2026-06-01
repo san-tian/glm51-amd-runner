@@ -65,7 +65,7 @@ export AUTO_ATTACH_TMUX="${AUTO_ATTACH_TMUX:-0}"
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb"
-export GLM51_SCRIPT_VERSION="markdown-20260601-sglang-tinker-merge-quant-v3.7"
+export GLM51_SCRIPT_VERSION="markdown-20260601-sglang-tinker-merge-quant-v3.8"
 # 若已有包含 ATOM PR355 代码的自定义镜像，在这里覆盖 SGLANG_IMAGE；官方镜像未必包含 atom 包。
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="sglang-glm51-fp8-atom-pr355"
@@ -341,7 +341,7 @@ export ATOM_REPO_HOST="${ATOM_REPO_HOST:-$ATOM_REPO_ROOT}"
 export ATOM_REPO_CONTAINER="${ATOM_REPO_CONTAINER:-/opt/ATOM}"
 export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/python:/opt/ATOM}"
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.7}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-${CONTROL_DIR:-/opt/glm51}}"
 export CONTROL_DIR="${CONTROL_DIR:-$CONTROL_PLANE_DIR}"
 export GLM51_OPT_DIR="${GLM51_OPT_DIR:-$CONTROL_PLANE_DIR}"
@@ -810,7 +810,7 @@ cat > "${GENERATED_SCRIPT_DIR}/glm51_resume.sh" <<'BASH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.7}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
 echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE[0]:-$0} pid=$$ pwd=$(pwd)"
 
 ########################################
@@ -819,7 +819,7 @@ echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="${BASE_IMAGE:-rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.7}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="${SGLANG_CONTAINER:-sglang-glm51-fp8-atom-pr355}"
 export LMEVAL_IMAGE="${LMEVAL_IMAGE:-lm-eval-harness:latest}"
@@ -7240,36 +7240,110 @@ scrub_sglang_attention_scale_inv_keys() {
   [ -f "$model_path/fp8_quant_meta.json" ] || return 0
   [ -f "$model_path/model.safetensors.index.json" ] || return 0
 
-  log "scrub SGLang-incompatible attention scale_inv keys from FP8 index: $model_path"
-  sudo python3 - "$model_path" <<'PY'
+  log "scrub SGLang-incompatible attention scale_inv keys from FP8 index and shards: $model_path"
+  sudo docker run --rm -i \
+    -v "${HOST_WORKDIR}:${CONTAINER_WORKDIR}" \
+    --entrypoint python3 \
+    "$BASE_IMAGE" \
+    - "$model_path" <<'PY'
+from collections import defaultdict
 import json
-import time
+import os
 from pathlib import Path
 import sys
+import time
+
+from safetensors import safe_open
+from safetensors.torch import save_file
 
 model = Path(sys.argv[1])
 index_path = model / "model.safetensors.index.json"
 payload = json.loads(index_path.read_text())
-weight_map = payload.get("weight_map", {})
 patterns = (
     "self_attn.q_a_proj.weight_scale_inv",
     "self_attn.kv_a_proj_with_mqa.weight_scale_inv",
 )
-bad = [key for key in list(weight_map) if any(pattern in key for pattern in patterns)]
-if not bad:
-    print(json.dumps({"removed_attention_scale_inv_key_count": 0, "model": str(model)}, ensure_ascii=True))
-    raise SystemExit(0)
 
-backup_path = model / f"model.safetensors.index.json.bak-attn-scale-{int(time.time())}"
-backup_path.write_text(index_path.read_text())
+source_payload = payload
+source_name = index_path.name
+bad = [key for key in source_payload.get("weight_map", {}) if any(pattern in key for pattern in patterns)]
+if not bad:
+    backups = sorted(
+        model.glob("model.safetensors.index.json.bak-attn-scale-*"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for backup_path in backups:
+        backup_payload = json.loads(backup_path.read_text())
+        backup_bad = [key for key in backup_payload.get("weight_map", {}) if any(pattern in key for pattern in patterns)]
+        if backup_bad:
+            source_payload = backup_payload
+            source_name = backup_path.name
+            bad = backup_bad
+            break
+
+by_shard = defaultdict(list)
 for key in bad:
-    del weight_map[key]
+    shard = source_payload.get("weight_map", {}).get(key)
+    if shard:
+        by_shard[shard].append(key)
+
+stamp = int(time.time())
+rewritten = []
+missing_shard_keys = []
+for shard_name, keys in sorted(by_shard.items()):
+    shard_path = model / shard_name
+    if not shard_path.exists():
+        missing_shard_keys.extend(keys)
+        continue
+
+    remove = set(keys)
+    tmp_path = shard_path.with_name(f"{shard_path.name}.tmp-attn-scale-{stamp}")
+    with safe_open(shard_path, framework="pt", device="cpu") as handle:
+        metadata = handle.metadata()
+        tensor_keys = list(handle.keys())
+        present = remove.intersection(tensor_keys)
+        tensors = {key: handle.get_tensor(key) for key in tensor_keys if key not in remove}
+
+    if not present:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        continue
+
+    save_file(tensors, str(tmp_path), metadata=metadata)
+    os.replace(tmp_path, shard_path)
+    rewritten.append({"shard": shard_name, "removed": len(present)})
+
+weight_map = payload.setdefault("weight_map", {})
+removed_from_index = 0
+index_backup_name = None
+for key in list(weight_map):
+    if any(pattern in key for pattern in patterns):
+        if index_backup_name is None:
+            index_backup = model / f"model.safetensors.index.json.bak-attn-scale-{stamp}"
+            index_backup.write_text(index_path.read_text())
+            index_backup_name = index_backup.name
+        del weight_map[key]
+        removed_from_index += 1
+
 metadata = payload.setdefault("metadata", {})
-metadata["scrubbed_attention_scale_inv_key_count"] = len(bad)
+metadata["scrubbed_attention_scale_inv_key_count"] = removed_from_index
 metadata["scrubbed_attention_scale_inv_patterns"] = list(patterns)
-metadata["scrubbed_attention_scale_inv_backup"] = backup_path.name
+metadata["scrubbed_attention_scale_inv_backup"] = index_backup_name
+metadata["scrubbed_attention_scale_inv_tensor_key_count"] = sum(item["removed"] for item in rewritten)
+metadata["scrubbed_attention_scale_inv_tensor_source_index"] = source_name
+metadata["scrubbed_attention_scale_inv_tensor_shard_count"] = len(rewritten)
+metadata["scrubbed_attention_scale_inv_missing_shard_key_count"] = len(missing_shard_keys)
 index_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2))
-print(json.dumps({"removed_attention_scale_inv_key_count": len(bad), "backup": str(backup_path)}, ensure_ascii=True))
+
+print(json.dumps({
+    "removed_attention_scale_inv_key_count": removed_from_index,
+    "removed_attention_scale_inv_tensor_count": sum(item["removed"] for item in rewritten),
+    "rewritten_shard_count": len(rewritten),
+    "source_index": source_name,
+    "missing_shard_key_count": len(missing_shard_keys),
+    "model": str(model),
+}, ensure_ascii=True))
 PY
 }
 
@@ -8237,7 +8311,7 @@ export PREP_WINDOW="${PREP_WINDOW:-prep-download-build}"
 export SERVE_WINDOW="${SERVE_WINDOW:-sglang-serve}"
 export LMEVAL_WINDOW="${LMEVAL_WINDOW:-lm-eval}"
 export SGLANG_PORT="${SGLANG_PORT:-30000}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.7}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.8}"
 export AUTOSTART_CHECK_INTERVAL_SECONDS="${AUTOSTART_CHECK_INTERVAL_SECONDS:-60}"
 export AUTOSTART_RESUME_WINDOW="autostart-resume"
 export AUTOSTART_OBSERVE_WINDOW="autostart-observe"

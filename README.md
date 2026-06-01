@@ -4,7 +4,7 @@ GLM-5.1-FP8 on AMD runner for SGLang + ATOM PR355 OOT, with optional Tinker LoRA
 
 ## Version
 
-- Current local recipe ref: `v2026-06-01-tinker-merge-quant-v3.7`
+- Current local recipe ref: `v2026-06-01-tinker-merge-quant-v3.8`
 - Entry point: `bootstrap.sh`
 
 ## Run
@@ -14,7 +14,7 @@ Pin `RECIPE_REF` to a tag or commit when running an experiment. Do not use a mov
 ```bash
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-/data/glm51-control}"
 export RECIPE_REPO="${RECIPE_REPO:-https://github.com/san-tian/glm51-amd-runner}"
-export RECIPE_REF="${RECIPE_REF:-v2026-06-01-tinker-merge-quant-v3.7}"
+export RECIPE_REF="${RECIPE_REF:-v2026-06-01-tinker-merge-quant-v3.8}"
 export RECIPE_ARCHIVE_URL="${RECIPE_ARCHIVE_URL:-${RECIPE_REPO%.git}/archive/${RECIPE_REF}.tar.gz}"
 
 sudo install -d -m 0755 "$CONTROL_PLANE_DIR"
