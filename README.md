@@ -21,7 +21,7 @@ sudo install -d -m 0755 "$CONTROL_PLANE_DIR"
 cd "$CONTROL_PLANE_DIR"
 
 curl -fsSLo recipe.tar.gz "$RECIPE_ARCHIVE_URL"
-rm -rf recipe
+sudo rm -rf recipe
 mkdir -p recipe
 tar -xzf recipe.tar.gz -C recipe --strip-components=1
 
