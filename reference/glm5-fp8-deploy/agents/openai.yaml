@@ -1,0 +1,4 @@
+interface:
+  display_name: "GLM5.1 FP8 Deploy"
+  short_description: "Auto GLM-5.1 FP8 deployment"
+  default_prompt: "Use this skill to resolve a GLM-5.1 tinker:// LoRA from PFS or the GPU Lease HTTP archive fallback, convert adapter shards to PEFT when needed, merge into BF16, export a repaired FineGrainedFP8 checkpoint, auto-detect SGLang or vLLM on the target host, serve it, and validate the endpoint."
