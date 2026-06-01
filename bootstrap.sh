@@ -65,7 +65,7 @@ export AUTO_ATTACH_TMUX="${AUTO_ATTACH_TMUX:-0}"
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb"
-export GLM51_SCRIPT_VERSION="markdown-20260601-sglang-tinker-merge-quant-v3.4"
+export GLM51_SCRIPT_VERSION="markdown-20260601-sglang-tinker-merge-quant-v3.5"
 # 若已有包含 ATOM PR355 代码的自定义镜像，在这里覆盖 SGLANG_IMAGE；官方镜像未必包含 atom 包。
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="sglang-glm51-fp8-atom-pr355"
@@ -341,7 +341,7 @@ export ATOM_REPO_HOST="${ATOM_REPO_HOST:-$ATOM_REPO_ROOT}"
 export ATOM_REPO_CONTAINER="${ATOM_REPO_CONTAINER:-/opt/ATOM}"
 export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/python:/opt/ATOM}"
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.4}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.5}"
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-${CONTROL_DIR:-/opt/glm51}}"
 export CONTROL_DIR="${CONTROL_DIR:-$CONTROL_PLANE_DIR}"
 export GLM51_OPT_DIR="${GLM51_OPT_DIR:-$CONTROL_PLANE_DIR}"
@@ -810,7 +810,7 @@ cat > "${GENERATED_SCRIPT_DIR}/glm51_resume.sh" <<'BASH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.4}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.5}"
 echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE[0]:-$0} pid=$$ pwd=$(pwd)"
 
 ########################################
@@ -819,7 +819,7 @@ echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="${BASE_IMAGE:-rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.4}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.5}"
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="${SGLANG_CONTAINER:-sglang-glm51-fp8-atom-pr355}"
 export LMEVAL_IMAGE="${LMEVAL_IMAGE:-lm-eval-harness:latest}"
@@ -7176,6 +7176,9 @@ run_glm5_reference_merge_quant() {
     --entrypoint bash \
     "$BASE_IMAGE" \
     -lc 'set -Eeuo pipefail
+      [ -n "${HIP_VISIBLE_DEVICES:-}" ] || unset HIP_VISIBLE_DEVICES
+      [ -n "${ROCR_VISIBLE_DEVICES:-}" ] || unset ROCR_VISIBLE_DEVICES
+      [ -n "${CUDA_VISIBLE_DEVICES:-}" ] || unset CUDA_VISIBLE_DEVICES
       if [ -x /opt/venv/bin/python3 ]; then
         [ -e /usr/bin/python3.12.system ] || mv /usr/bin/python3.12 /usr/bin/python3.12.system
         cat > /usr/bin/python3.12 <<'"'"'PYSH'"'"'
@@ -7259,6 +7262,9 @@ check_glm5_reference_amd_runtime() {
     --entrypoint bash \
     "$BASE_IMAGE" \
     -lc 'set -Eeuo pipefail
+      [ -n "${HIP_VISIBLE_DEVICES:-}" ] || unset HIP_VISIBLE_DEVICES
+      [ -n "${ROCR_VISIBLE_DEVICES:-}" ] || unset ROCR_VISIBLE_DEVICES
+      [ -n "${CUDA_VISIBLE_DEVICES:-}" ] || unset CUDA_VISIBLE_DEVICES
       if [ -x /opt/venv/bin/python3 ]; then
         [ -e /usr/bin/python3.12.system ] || mv /usr/bin/python3.12 /usr/bin/python3.12.system
         cat > /usr/bin/python3.12 <<'"'"'PYSH'"'"'
@@ -8077,7 +8083,7 @@ export PREP_WINDOW="${PREP_WINDOW:-prep-download-build}"
 export SERVE_WINDOW="${SERVE_WINDOW:-sglang-serve}"
 export LMEVAL_WINDOW="${LMEVAL_WINDOW:-lm-eval}"
 export SGLANG_PORT="${SGLANG_PORT:-30000}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.4}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.5}"
 export AUTOSTART_CHECK_INTERVAL_SECONDS="${AUTOSTART_CHECK_INTERVAL_SECONDS:-60}"
 export AUTOSTART_RESUME_WINDOW="autostart-resume"
 export AUTOSTART_OBSERVE_WINDOW="autostart-observe"
