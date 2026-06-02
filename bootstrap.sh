@@ -67,7 +67,7 @@ export AUTOSTART_CREATE_OBSERVE_WINDOW="${AUTOSTART_CREATE_OBSERVE_WINDOW:-0}"
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb"
-export GLM51_SCRIPT_VERSION="markdown-20260602-sglang-quark-loader-patch-v3.13"
+export GLM51_SCRIPT_VERSION="markdown-20260602-sglang-quark-loader-patch-v3.14"
 # 若已有包含 ATOM PR355 代码的自定义镜像，在这里覆盖 SGLANG_IMAGE；官方镜像未必包含 atom 包。
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="sglang-glm51-fp8-atom-pr355"
@@ -348,7 +348,7 @@ export ATOM_REPO_HOST="${ATOM_REPO_HOST:-$ATOM_REPO_ROOT}"
 export ATOM_REPO_CONTAINER="${ATOM_REPO_CONTAINER:-/opt/ATOM}"
 export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/python:/opt/ATOM}"
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.13}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-${CONTROL_DIR:-/opt/glm51}}"
 export CONTROL_DIR="${CONTROL_DIR:-$CONTROL_PLANE_DIR}"
 export GLM51_OPT_DIR="${GLM51_OPT_DIR:-$CONTROL_PLANE_DIR}"
@@ -818,7 +818,7 @@ cat > "${GENERATED_SCRIPT_DIR}/glm51_resume.sh" <<'BASH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.13}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
 echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE[0]:-$0} pid=$$ pwd=$(pwd)"
 
 ########################################
@@ -827,7 +827,7 @@ echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="${BASE_IMAGE:-rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.13}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="${SGLANG_CONTAINER:-sglang-glm51-fp8-atom-pr355}"
 export LMEVAL_IMAGE="${LMEVAL_IMAGE:-lm-eval-harness:latest}"
@@ -1709,7 +1709,18 @@ else
 fi
 
 echo "Scanning adapter archive members: $ARCHIVE_PATH"
-tar -tzf "$ARCHIVE_PATH" > "$TAR_LIST"
+tar -tzf "$ARCHIVE_PATH" > "$TAR_LIST" &
+scan_pid="$!"
+scan_start="$(date +%s)"
+while kill -0 "$scan_pid" 2>/dev/null; do
+  sleep 30
+  if kill -0 "$scan_pid" 2>/dev/null; then
+    scan_now="$(date +%s)"
+    scan_lines="$(wc -l < "$TAR_LIST" 2>/dev/null | tr -d ' ' || true)"
+    echo "Archive member scan still running: elapsed=$((scan_now - scan_start))s entries=${scan_lines:-0}"
+  fi
+done
+wait "$scan_pid"
 echo "Archive member scan complete: $(wc -l < "$TAR_LIST" | tr -d ' ') entries"
 ARCHIVE_ADAPTER_PREFIX="$(python3 - "$NAME" "$TAR_LIST" "$MEMBER_LIST" <<'PY'
 from pathlib import Path
@@ -8276,7 +8287,7 @@ export PREP_WINDOW="${PREP_WINDOW:-prep-download-build}"
 export SERVE_WINDOW="${SERVE_WINDOW:-sglang-serve}"
 export LMEVAL_WINDOW="${LMEVAL_WINDOW:-lm-eval}"
 export SGLANG_PORT="${SGLANG_PORT:-7777}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.13}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
 export AUTOSTART_CHECK_INTERVAL_SECONDS="${AUTOSTART_CHECK_INTERVAL_SECONDS:-60}"
 export AUTOSTART_RESUME_WINDOW="autostart-resume"
 export AUTOSTART_OBSERVE_WINDOW="autostart-observe"
