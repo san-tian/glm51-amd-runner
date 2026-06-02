@@ -67,7 +67,7 @@ export AUTOSTART_CREATE_OBSERVE_WINDOW="${AUTOSTART_CREATE_OBSERVE_WINDOW:-0}"
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb"
-export GLM51_SCRIPT_VERSION="markdown-20260602-sglang-quark-loader-patch-v3.14"
+export GLM51_SCRIPT_VERSION="markdown-20260602-sglang-quark-loader-patch-v3.15"
 # 若已有包含 ATOM PR355 代码的自定义镜像，在这里覆盖 SGLANG_IMAGE；官方镜像未必包含 atom 包。
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="sglang-glm51-fp8-atom-pr355"
@@ -348,7 +348,7 @@ export ATOM_REPO_HOST="${ATOM_REPO_HOST:-$ATOM_REPO_ROOT}"
 export ATOM_REPO_CONTAINER="${ATOM_REPO_CONTAINER:-/opt/ATOM}"
 export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/python:/opt/ATOM}"
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.15}"
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-${CONTROL_DIR:-/opt/glm51}}"
 export CONTROL_DIR="${CONTROL_DIR:-$CONTROL_PLANE_DIR}"
 export GLM51_OPT_DIR="${GLM51_OPT_DIR:-$CONTROL_PLANE_DIR}"
@@ -818,7 +818,7 @@ cat > "${GENERATED_SCRIPT_DIR}/glm51_resume.sh" <<'BASH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.15}"
 echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE[0]:-$0} pid=$$ pwd=$(pwd)"
 
 ########################################
@@ -827,7 +827,7 @@ echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="${BASE_IMAGE:-rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.15}"
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="${SGLANG_CONTAINER:-sglang-glm51-fp8-atom-pr355}"
 export LMEVAL_IMAGE="${LMEVAL_IMAGE:-lm-eval-harness:latest}"
@@ -1663,12 +1663,13 @@ mkdir -p "$WORK_TMP_ROOT"
 SAFE_NAME="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_.-' '_')"
 [ -n "$SAFE_NAME" ] || SAFE_NAME="adapter"
 CONVERT_LOG="$(mktemp "$WORK_TMP_ROOT/tinker-http-archive.XXXXXX")"
+PREVIEW_LIST="$(mktemp "$WORK_TMP_ROOT/tinker-archive-preview.XXXXXX")"
 TAR_LIST="$(mktemp "$WORK_TMP_ROOT/tinker-archive-list.XXXXXX")"
 MEMBER_LIST="$(mktemp "$WORK_TMP_ROOT/tinker-archive-members.XXXXXX")"
 STAGE_DIR=""
 FINAL_TMP=""
 cleanup() {
-  rm -f "$CONVERT_LOG" "$TAR_LIST" "$MEMBER_LIST"
+  rm -f "$CONVERT_LOG" "$PREVIEW_LIST" "$TAR_LIST" "$MEMBER_LIST"
   [ -z "${STAGE_DIR:-}" ] || rm -rf "$STAGE_DIR"
   [ -z "${FINAL_TMP:-}" ] || rm -rf "$FINAL_TMP"
 }
@@ -1702,27 +1703,14 @@ PY
 fi
 
 echo "Archive preview, best effort first 80 members:"
-if timeout 30s tar -tzf "$ARCHIVE_PATH" | sed -n '1,80p'; then
+if timeout 30s tar -tzf "$ARCHIVE_PATH" | sed -n '1,80p' | tee "$PREVIEW_LIST"; then
   :
 else
-  echo "Archive preview timed out or failed; continuing with full archive member scan."
+  echo "Archive preview timed out or failed; attempting fast selection from partial preview."
 fi
 
-echo "Scanning adapter archive members: $ARCHIVE_PATH"
-tar -tzf "$ARCHIVE_PATH" > "$TAR_LIST" &
-scan_pid="$!"
-scan_start="$(date +%s)"
-while kill -0 "$scan_pid" 2>/dev/null; do
-  sleep 30
-  if kill -0 "$scan_pid" 2>/dev/null; then
-    scan_now="$(date +%s)"
-    scan_lines="$(wc -l < "$TAR_LIST" 2>/dev/null | tr -d ' ' || true)"
-    echo "Archive member scan still running: elapsed=$((scan_now - scan_start))s entries=${scan_lines:-0}"
-  fi
-done
-wait "$scan_pid"
-echo "Archive member scan complete: $(wc -l < "$TAR_LIST" | tr -d ' ') entries"
-ARCHIVE_ADAPTER_PREFIX="$(python3 - "$NAME" "$TAR_LIST" "$MEMBER_LIST" <<'PY'
+ARCHIVE_ADAPTER_PREFIX=""
+if ARCHIVE_ADAPTER_PREFIX="$(python3 - "$NAME" "$PREVIEW_LIST" "$MEMBER_LIST" <<'PY'
 from pathlib import Path
 import posixpath
 import sys
@@ -1765,6 +1753,17 @@ def score(prefix: str):
 
 prefix = sorted(set(prefixes), key=score)[0]
 wanted = {"adapter_config.json", "adapter_model.safetensors", "metadata.json", "training_meta.json"}
+has_safetensors = False
+for _raw, norm in entries:
+    if prefix:
+        if not norm.startswith(prefix + "/"):
+            continue
+        rel = norm[len(prefix) + 1 :]
+    else:
+        rel = norm
+    if posixpath.basename(rel) == "adapter_model.safetensors":
+        has_safetensors = True
+
 selected = []
 for raw, norm in entries:
     if prefix:
@@ -1778,7 +1777,7 @@ for raw, norm in entries:
     if not rel or "/" in rel:
         continue
     base = posixpath.basename(rel)
-    if base in wanted or base.endswith("_adapter.pt"):
+    if base in wanted or (not has_safetensors and base.endswith("_adapter.pt")):
         selected.append(raw)
 
 if "adapter_config.json" not in {posixpath.basename(normalize(raw)) for raw in selected}:
@@ -1789,7 +1788,103 @@ if not any(posixpath.basename(normalize(raw)).endswith("_adapter.pt") or posixpa
 member_list.write_text("".join(f"{member}\n" for member in selected))
 print(prefix)
 PY
-)"
+)"; then
+  echo "Selected adapter members from archive preview."
+else
+  echo "Preview did not contain enough adapter members; scanning full adapter archive: $ARCHIVE_PATH"
+  tar -tzf "$ARCHIVE_PATH" > "$TAR_LIST" &
+  scan_pid="$!"
+  scan_start="$(date +%s)"
+  while kill -0 "$scan_pid" 2>/dev/null; do
+    sleep 30
+    if kill -0 "$scan_pid" 2>/dev/null; then
+      scan_now="$(date +%s)"
+      scan_lines="$(wc -l < "$TAR_LIST" 2>/dev/null | tr -d ' ' || true)"
+      echo "Archive member scan still running: elapsed=$((scan_now - scan_start))s entries=${scan_lines:-0}"
+    fi
+  done
+  wait "$scan_pid"
+  echo "Archive member scan complete: $(wc -l < "$TAR_LIST" | tr -d ' ') entries"
+  ARCHIVE_ADAPTER_PREFIX="$(python3 - "$NAME" "$TAR_LIST" "$MEMBER_LIST" <<'PY'
+from pathlib import Path
+import posixpath
+import sys
+
+name = sys.argv[1].strip("/")
+tar_list = Path(sys.argv[2])
+member_list = Path(sys.argv[3])
+
+def normalize(member: str) -> str:
+    member = member.strip()
+    while member.startswith("./"):
+        member = member[2:]
+    return member.rstrip("/")
+
+entries = [(raw, normalize(raw)) for raw in tar_list.read_text().splitlines() if normalize(raw)]
+for _raw, norm in entries:
+    parts = norm.split("/")
+    if norm.startswith("/") or any(part == ".." for part in parts):
+        raise SystemExit(f"unsafe archive member path: {norm}")
+
+prefixes = []
+for _raw, norm in entries:
+    if norm == "adapter_config.json":
+        prefixes.append("")
+    elif norm.endswith("/adapter_config.json"):
+        prefixes.append(norm[: -len("/adapter_config.json")])
+
+if not prefixes:
+    raise SystemExit("archive does not contain adapter_config.json")
+
+def score(prefix: str):
+    base = posixpath.basename(prefix)
+    if prefix == name:
+        rank = 0
+    elif base == name:
+        rank = 1
+    else:
+        rank = 2
+    return (rank, len(prefix), prefix)
+
+prefix = sorted(set(prefixes), key=score)[0]
+wanted = {"adapter_config.json", "adapter_model.safetensors", "metadata.json", "training_meta.json"}
+has_safetensors = False
+for _raw, norm in entries:
+    if prefix:
+        if not norm.startswith(prefix + "/"):
+            continue
+        rel = norm[len(prefix) + 1 :]
+    else:
+        rel = norm
+    if posixpath.basename(rel) == "adapter_model.safetensors":
+        has_safetensors = True
+
+selected = []
+for raw, norm in entries:
+    if prefix:
+        if norm == prefix:
+            continue
+        if not norm.startswith(prefix + "/"):
+            continue
+        rel = norm[len(prefix) + 1 :]
+    else:
+        rel = norm
+    if not rel or "/" in rel:
+        continue
+    base = posixpath.basename(rel)
+    if base in wanted or (not has_safetensors and base.endswith("_adapter.pt")):
+        selected.append(raw)
+
+if "adapter_config.json" not in {posixpath.basename(normalize(raw)) for raw in selected}:
+    raise SystemExit("adapter_config.json was not selected for extraction")
+if not any(posixpath.basename(normalize(raw)).endswith("_adapter.pt") or posixpath.basename(normalize(raw)) == "adapter_model.safetensors" for raw in selected):
+    raise SystemExit("archive contains no adapter_model.safetensors or *_adapter.pt files")
+
+member_list.write_text("".join(f"{member}\n" for member in selected))
+print(prefix)
+PY
+  )"
+fi
 
 if [ -n "$ARCHIVE_ADAPTER_PREFIX" ]; then
   echo "Archive adapter directory: $ARCHIVE_ADAPTER_PREFIX"
@@ -8287,7 +8382,7 @@ export PREP_WINDOW="${PREP_WINDOW:-prep-download-build}"
 export SERVE_WINDOW="${SERVE_WINDOW:-sglang-serve}"
 export LMEVAL_WINDOW="${LMEVAL_WINDOW:-lm-eval}"
 export SGLANG_PORT="${SGLANG_PORT:-7777}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.14}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.15}"
 export AUTOSTART_CHECK_INTERVAL_SECONDS="${AUTOSTART_CHECK_INTERVAL_SECONDS:-60}"
 export AUTOSTART_RESUME_WINDOW="autostart-resume"
 export AUTOSTART_OBSERVE_WINDOW="autostart-observe"
