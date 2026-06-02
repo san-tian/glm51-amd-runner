@@ -62,10 +62,12 @@ export COPY_FIRST_RUN_LOG_TO_LOCAL_NVME="${COPY_FIRST_RUN_LOG_TO_LOCAL_NVME:-0}"
 export CONTROL_DIR="${CONTROL_DIR:-}"
 export GENERATED_SCRIPT_DIR="${GENERATED_SCRIPT_DIR:-}"
 export AUTO_ATTACH_TMUX="${AUTO_ATTACH_TMUX:-0}"
+# autostart-observe 是循环刷新状态的 tmux 窗口。默认关闭，避免抢占 SSH/tmux 焦点。
+export AUTOSTART_CREATE_OBSERVE_WINDOW="${AUTOSTART_CREATE_OBSERVE_WINDOW:-0}"
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb"
-export GLM51_SCRIPT_VERSION="markdown-20260601-sglang-tinker-merge-quant-v3.9"
+export GLM51_SCRIPT_VERSION="markdown-20260602-sglang-quark-loader-patch-v3.11"
 # 若已有包含 ATOM PR355 代码的自定义镜像，在这里覆盖 SGLANG_IMAGE；官方镜像未必包含 atom 包。
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="sglang-glm51-fp8-atom-pr355"
@@ -119,6 +121,11 @@ export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/p
 export SGLANG_EXTERNAL_MODEL_PACKAGE="${SGLANG_EXTERNAL_MODEL_PACKAGE:-atom.plugin.sglang.models}"
 export AITER_QUICK_REDUCE_QUANTIZATION="${AITER_QUICK_REDUCE_QUANTIZATION:-INT4}"
 export SGLANG_AITER_FP8_PREFILL_ATTN="${SGLANG_AITER_FP8_PREFILL_ATTN:-0}"
+# SGLang 0.5.12 的通用 quark loader 会把 GLM q_a/kv_a A-proj 强行映射到
+# fused_qkv_a_proj_with_mqa，连 weight_scale_inv 也一起改名，导致 scale 找不到
+# runtime 参数。默认在容器启动时 patch 这条通用映射，让 GLM 模型类自己的
+# 成对 fuse 逻辑同时处理 weight 和 scale；不改 checkpoint。
+export PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ="${PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ:-1}"
 
 
 export LMEVAL_WORKDIR="${CONTAINER_WORKDIR}/lm_eval"
@@ -341,7 +348,7 @@ export ATOM_REPO_HOST="${ATOM_REPO_HOST:-$ATOM_REPO_ROOT}"
 export ATOM_REPO_CONTAINER="${ATOM_REPO_CONTAINER:-/opt/ATOM}"
 export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/python:/opt/ATOM}"
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.11}"
 export CONTROL_PLANE_DIR="${CONTROL_PLANE_DIR:-${CONTROL_DIR:-/opt/glm51}}"
 export CONTROL_DIR="${CONTROL_DIR:-$CONTROL_PLANE_DIR}"
 export GLM51_OPT_DIR="${GLM51_OPT_DIR:-$CONTROL_PLANE_DIR}"
@@ -372,6 +379,7 @@ export LOG_TIMEZONE="${LOG_TIMEZONE:-Asia/Shanghai}"
 export RUN_ID="${RUN_ID:-}"
 export FIRST_RUN_LOG_COPY_TIMEOUT_SECONDS="${FIRST_RUN_LOG_COPY_TIMEOUT_SECONDS:-10}"
 export COPY_FIRST_RUN_LOG_TO_LOCAL_NVME="${COPY_FIRST_RUN_LOG_TO_LOCAL_NVME:-0}"
+export PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ="${PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ:-1}"
 
 persist_root_writable() {
   local dir="$1" test_file
@@ -810,7 +818,7 @@ cat > "${GENERATED_SCRIPT_DIR}/glm51_resume.sh" <<'BASH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.11}"
 echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE[0]:-$0} pid=$$ pwd=$(pwd)"
 
 ########################################
@@ -819,7 +827,7 @@ echo "[resume] GLM51_SCRIPT_VERSION=${GLM51_SCRIPT_VERSION} script=${BASH_SOURCE
 
 # BASE_IMAGE 用于下载/校验 Hugging Face 模型，并作为 Tinker merge/quant 的 ROCm 运行时；serve 使用 SGLANG_IMAGE。
 export BASE_IMAGE="${BASE_IMAGE:-rocm/atom-dev@sha256:9be7af4ec2b5eed8826521db5719e9610ce03f784fb49cc15effb1f2584192eb}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.11}"
 export SGLANG_IMAGE="${SGLANG_IMAGE:-lmsysorg/sglang-rocm:v0.5.12.post1-rocm720-mi30x-20260529}"
 export SGLANG_CONTAINER="${SGLANG_CONTAINER:-sglang-glm51-fp8-atom-pr355}"
 export LMEVAL_IMAGE="${LMEVAL_IMAGE:-lm-eval-harness:latest}"
@@ -856,6 +864,7 @@ export ATOM_PLUGIN_PYTHONPATH="${ATOM_PLUGIN_PYTHONPATH:-/sgl-workspace/sglang/p
 export SGLANG_EXTERNAL_MODEL_PACKAGE="${SGLANG_EXTERNAL_MODEL_PACKAGE:-atom.plugin.sglang.models}"
 export AITER_QUICK_REDUCE_QUANTIZATION="${AITER_QUICK_REDUCE_QUANTIZATION:-INT4}"
 export SGLANG_AITER_FP8_PREFILL_ATTN="${SGLANG_AITER_FP8_PREFILL_ATTN:-0}"
+export PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ="${PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ:-1}"
 export INSTALL_SYSTEMD_AUTOSTART="${INSTALL_SYSTEMD_AUTOSTART:-1}"
 export AUTOSTART_SERVICE_NAME="${AUTOSTART_SERVICE_NAME:-glm51-autostart}"
 export AUTOSTART_CHECK_INTERVAL_SECONDS="${AUTOSTART_CHECK_INTERVAL_SECONDS:-60}"
@@ -6642,8 +6651,9 @@ ATOM_PLUGIN_PYTHONPATH=%s
 SGLANG_EXTERNAL_MODEL_PACKAGE=%s
 AITER_QUICK_REDUCE_QUANTIZATION=%s
 SGLANG_AITER_FP8_PREFILL_ATTN=%s
+PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ=%s
 ' \
-    "$BASE_IMAGE" "$SGLANG_IMAGE" "$SGLANG_CONTAINER" "$HOST_WORKDIR" "$CONTAINER_WORKDIR" "$HOST_TMPDIR" "$MODEL_ID" "$MODEL_REVISION" "$MODEL_DIR" "$MODEL_DIR_HOST" "$SERVED_MODEL_NAME" "$RUN_TINKER_MERGE_QUANT" "$GPU_LEASE_BASE_URL" "$([ -n "${GPU_LEASE_API_KEY:-}" ] && printf yes || printf no)" "$([ -n "${TINKER_URL:-}" ] && printf yes || printf no)" "$LORA_DIR" "$MERGED_MODEL_DIR" "$QUANT_MODEL_DIR" "$QUANT_SCHEME" "$GLM5_REFERENCE_SCRIPTS_DIR" "$GLM5_MERGE_QUANT_GPUS" "$GLM5_MERGE_QUANT_WORKERS_PER_GPU" "$GLM5_LOCAL_QUANT_ROOT" "$SGLANG_PORT" "$INSTALL_SYSTEMD_AUTOSTART" "$AUTOSTART_SERVICE_NAME" "$AUTOSTART_CHECK_INTERVAL_SECONDS" "$AUTO_FREE_SPACE" "$AUTO_DELETE_MODEL_IF_LOW_SPACE" "$MIN_HOST_FREE_GB" "$MIN_MODEL_DOWNLOAD_FREE_GB" "$MIN_DOCKER_BUILD_FREE_GB" "$([ -n "${HF_TOKEN:-}" ] && printf yes || printf no)" "$ATOM_REPO_URL" "$ATOM_REF" "$ATOM_REPO_ROOT" "$ATOM_REPO_HOST" "$ATOM_REPO_CONTAINER" "$ATOM_PLUGIN_PYTHONPATH" "$SGLANG_EXTERNAL_MODEL_PACKAGE" "$AITER_QUICK_REDUCE_QUANTIZATION" "$SGLANG_AITER_FP8_PREFILL_ATTN"
+    "$BASE_IMAGE" "$SGLANG_IMAGE" "$SGLANG_CONTAINER" "$HOST_WORKDIR" "$CONTAINER_WORKDIR" "$HOST_TMPDIR" "$MODEL_ID" "$MODEL_REVISION" "$MODEL_DIR" "$MODEL_DIR_HOST" "$SERVED_MODEL_NAME" "$RUN_TINKER_MERGE_QUANT" "$GPU_LEASE_BASE_URL" "$([ -n "${GPU_LEASE_API_KEY:-}" ] && printf yes || printf no)" "$([ -n "${TINKER_URL:-}" ] && printf yes || printf no)" "$LORA_DIR" "$MERGED_MODEL_DIR" "$QUANT_MODEL_DIR" "$QUANT_SCHEME" "$GLM5_REFERENCE_SCRIPTS_DIR" "$GLM5_MERGE_QUANT_GPUS" "$GLM5_MERGE_QUANT_WORKERS_PER_GPU" "$GLM5_LOCAL_QUANT_ROOT" "$SGLANG_PORT" "$INSTALL_SYSTEMD_AUTOSTART" "$AUTOSTART_SERVICE_NAME" "$AUTOSTART_CHECK_INTERVAL_SECONDS" "$AUTO_FREE_SPACE" "$AUTO_DELETE_MODEL_IF_LOW_SPACE" "$MIN_HOST_FREE_GB" "$MIN_MODEL_DOWNLOAD_FREE_GB" "$MIN_DOCKER_BUILD_FREE_GB" "$([ -n "${HF_TOKEN:-}" ] && printf yes || printf no)" "$ATOM_REPO_URL" "$ATOM_REF" "$ATOM_REPO_ROOT" "$ATOM_REPO_HOST" "$ATOM_REPO_CONTAINER" "$ATOM_PLUGIN_PYTHONPATH" "$SGLANG_EXTERNAL_MODEL_PACKAGE" "$AITER_QUICK_REDUCE_QUANTIZATION" "$SGLANG_AITER_FP8_PREFILL_ATTN" "$PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ"
   printf 'SGLANG_SERVE_ARGS=
 %s
 ' "$SGLANG_SERVE_ARGS"
@@ -7235,116 +7245,7 @@ download_model() {
 }
 
 scrub_sglang_attention_scale_inv_keys() {
-  local model_path="$1"
-  [ -n "$model_path" ] || return 0
-  [ -f "$model_path/fp8_quant_meta.json" ] || return 0
-  [ -f "$model_path/model.safetensors.index.json" ] || return 0
-
-  log "scrub SGLang-incompatible attention scale_inv keys from FP8 index and shards: $model_path"
-  sudo docker run --rm -i \
-    -v "${HOST_WORKDIR}:${CONTAINER_WORKDIR}" \
-    --entrypoint python3 \
-    "$BASE_IMAGE" \
-    - "$model_path" <<'PY'
-from collections import defaultdict
-import json
-import os
-from pathlib import Path
-import sys
-import time
-
-from safetensors import safe_open
-from safetensors.torch import save_file
-
-model = Path(sys.argv[1])
-index_path = model / "model.safetensors.index.json"
-payload = json.loads(index_path.read_text())
-patterns = (
-    "self_attn.q_a_proj.weight_scale_inv",
-    "self_attn.kv_a_proj_with_mqa.weight_scale_inv",
-)
-
-source_payload = payload
-source_name = index_path.name
-bad = [key for key in source_payload.get("weight_map", {}) if any(pattern in key for pattern in patterns)]
-if not bad:
-    backups = sorted(
-        model.glob("model.safetensors.index.json.bak-attn-scale-*"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    for backup_path in backups:
-        backup_payload = json.loads(backup_path.read_text())
-        backup_bad = [key for key in backup_payload.get("weight_map", {}) if any(pattern in key for pattern in patterns)]
-        if backup_bad:
-            source_payload = backup_payload
-            source_name = backup_path.name
-            bad = backup_bad
-            break
-
-by_shard = defaultdict(list)
-for key in bad:
-    shard = source_payload.get("weight_map", {}).get(key)
-    if shard:
-        by_shard[shard].append(key)
-
-stamp = int(time.time())
-rewritten = []
-missing_shard_keys = []
-for shard_name, keys in sorted(by_shard.items()):
-    shard_path = model / shard_name
-    if not shard_path.exists():
-        missing_shard_keys.extend(keys)
-        continue
-
-    remove = set(keys)
-    tmp_path = shard_path.with_name(f"{shard_path.name}.tmp-attn-scale-{stamp}")
-    with safe_open(shard_path, framework="pt", device="cpu") as handle:
-        metadata = handle.metadata()
-        tensor_keys = list(handle.keys())
-        present = remove.intersection(tensor_keys)
-        tensors = {key: handle.get_tensor(key) for key in tensor_keys if key not in remove}
-
-    if not present:
-        if tmp_path.exists():
-            tmp_path.unlink()
-        continue
-
-    save_file(tensors, str(tmp_path), metadata=metadata)
-    os.replace(tmp_path, shard_path)
-    rewritten.append({"shard": shard_name, "removed": len(present)})
-
-weight_map = payload.setdefault("weight_map", {})
-removed_from_index = 0
-index_backup_name = None
-for key in list(weight_map):
-    if any(pattern in key for pattern in patterns):
-        if index_backup_name is None:
-            index_backup = model / f"model.safetensors.index.json.bak-attn-scale-{stamp}"
-            index_backup.write_text(index_path.read_text())
-            index_backup_name = index_backup.name
-        del weight_map[key]
-        removed_from_index += 1
-
-metadata = payload.setdefault("metadata", {})
-metadata["scrubbed_attention_scale_inv_key_count"] = removed_from_index
-metadata["scrubbed_attention_scale_inv_patterns"] = list(patterns)
-metadata["scrubbed_attention_scale_inv_backup"] = index_backup_name
-metadata["scrubbed_attention_scale_inv_tensor_key_count"] = sum(item["removed"] for item in rewritten)
-metadata["scrubbed_attention_scale_inv_tensor_source_index"] = source_name
-metadata["scrubbed_attention_scale_inv_tensor_shard_count"] = len(rewritten)
-metadata["scrubbed_attention_scale_inv_missing_shard_key_count"] = len(missing_shard_keys)
-index_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2))
-
-print(json.dumps({
-    "removed_attention_scale_inv_key_count": removed_from_index,
-    "removed_attention_scale_inv_tensor_count": sum(item["removed"] for item in rewritten),
-    "rewritten_shard_count": len(rewritten),
-    "source_index": source_name,
-    "missing_shard_key_count": len(missing_shard_keys),
-    "model": str(model),
-}, ensure_ascii=True))
-PY
+  fail "checkpoint attention scale scrubbing is disabled; use the SGLang quark loader runtime patch instead"
 }
 
 run_glm5_reference_merge_quant() {
@@ -7461,7 +7362,7 @@ PY
     sudo chown -R "$(id -u):$(id -g)" "$QUANT_MODEL_DIR_HOST" || true
   fi
 
-  scrub_sglang_attention_scale_inv_keys "$QUANT_MODEL_DIR_HOST"
+  log "skip checkpoint scrub; SGLang quark attention A-proj loader issue is handled by runtime patch at serve time"
 }
 
 check_glm5_reference_amd_runtime() {
@@ -7742,6 +7643,7 @@ export_common_tmux_env() {
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" SGLANG_EXTERNAL_MODEL_PACKAGE "$SGLANG_EXTERNAL_MODEL_PACKAGE"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" AITER_QUICK_REDUCE_QUANTIZATION "$AITER_QUICK_REDUCE_QUANTIZATION"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" SGLANG_AITER_FP8_PREFILL_ATTN "$SGLANG_AITER_FP8_PREFILL_ATTN"
+  tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ "$PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" INSTALL_SYSTEMD_AUTOSTART "$INSTALL_SYSTEMD_AUTOSTART"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" AUTOSTART_SERVICE_NAME "$AUTOSTART_SERVICE_NAME"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" AUTOSTART_CHECK_INTERVAL_SECONDS "$AUTOSTART_CHECK_INTERVAL_SECONDS"
@@ -7833,8 +7735,7 @@ run_download_and_build_sequential() {
     "${STATE_DIR}/prep.done" \
     "${STATE_DIR}/prep.failed"
   tmux -S "$TMUX_SOCKET" kill-window -t "$target" >/dev/null 2>&1 || true
-  tmux -S "$TMUX_SOCKET" new-window -t "$TMUX_SESSION" -n "$PREP_WINDOW" -c "$HOST_WORKDIR" "$prep_cmd"
-  tmux -S "$TMUX_SOCKET" select-window -t "$target" || true
+  tmux -S "$TMUX_SOCKET" new-window -d -t "$TMUX_SESSION" -n "$PREP_WINDOW" -c "$HOST_WORKDIR" "$prep_cmd"
 
   log "waiting for sequential download/image; inspect tmux window: $PREP_WINDOW"
   local wait_count=0
@@ -7986,14 +7887,76 @@ fi
 [ -n "${ATOM_PLUGIN_PYTHONPATH:-}" ] || { echo "ERROR: ATOM_PLUGIN_PYTHONPATH is empty for PR355 OOT ATOM plugin" >&2; exit 1; }
 export ATOM_PLUGIN_PYTHONPATH
 
+SGLANG_PATCH_MOUNT_ARGS=()
+prepare_sglang_quark_loader_patch() {
+  [ "${PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ:-1}" = "1" ] || return 0
+
+  local patch_root_host patch_pkg_host patch_loader_host patch_root_container patch_loader_container loader_container_path
+  patch_root_host="${GENERATED_SCRIPT_DIR:-${HOST_WORKDIR}}/sglang-runtime-patches/quark-loader-no-fused-a-proj"
+  patch_pkg_host="${patch_root_host}/sglang/srt/model_loader"
+  patch_loader_host="${patch_pkg_host}/loader.py"
+  patch_root_container="/glm51-sglang-patch"
+  patch_loader_container="${patch_root_container}/sglang/srt/model_loader/loader.py"
+  loader_container_path="/sgl-workspace/sglang/python/sglang/srt/model_loader/loader.py"
+
+  sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" "$patch_pkg_host"
+
+  echo "[sglang-serve] creating runtime patch for quark fused_qkv_a_proj_with_mqa loader mapping"
+  sudo docker run --rm -i \
+    -v "${patch_root_host}:${patch_root_container}" \
+    --entrypoint python3 \
+    "$SGLANG_IMAGE" \
+    - "$patch_loader_container" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+dst = Path(sys.argv[1])
+src = Path("/sgl-workspace/sglang/python/sglang/srt/model_loader/loader.py")
+if not src.is_file():
+    raise SystemExit(f"SGLang loader source not found: {src}")
+text = src.read_text()
+old = '''                "fused_qkv_a_proj_with_mqa": ["q_a_proj", "kv_a_proj_with_mqa"],
+'''
+new = '''                # GLM models already fuse q_a_proj/kv_a_proj_with_mqa in
+                # their model-specific load_weights() path. The generic quark
+                # packed mapping also rewrites *_weight_scale_inv keys to a
+                # nonexistent fused scale parameter, so leave this pair to the
+                # model loader.
+'''
+if old not in text:
+    raise SystemExit("expected quark fused_qkv_a_proj_with_mqa mapping was not found")
+text = text.replace(old, new, 1)
+if '"gate_up_proj": ["gate_proj", "up_proj"],' not in text:
+    raise SystemExit("gate_up_proj quark mapping missing after patch")
+if re.search(r'packed_modules_mapping\\.update\\(\\s*\\{\\s*"gate_up_proj": \\["gate_proj", "up_proj"\\],\\s*"fused_qkv_a_proj_with_mqa"', text):
+    raise SystemExit("fused_qkv_a_proj_with_mqa mapping still present in quark update")
+dst.write_text(text)
+print(f"patched_loader={dst}")
+PY
+
+  SGLANG_PATCH_MOUNT_ARGS=(-v "${patch_loader_host}:${loader_container_path}:ro")
+}
+
+prepare_sglang_quark_loader_patch
+
 echo "[sglang-serve] checking ATOM external package import before starting serve"
-if ! sudo docker run --rm -i   --network host   --ipc host   --device /dev/kfd   --device /dev/dri   --group-add video   --cap-add SYS_PTRACE   --security-opt seccomp=unconfined   --security-opt label=disable   -v "${HOST_WORKDIR}:${CONTAINER_WORKDIR}"   "${ATOM_DOCKER_MOUNT_ARGS[@]}"   -e "PYTHONPATH=${ATOM_PLUGIN_PYTHONPATH}"   -e "SGLANG_EXTERNAL_MODEL_PACKAGE=${SGLANG_EXTERNAL_MODEL_PACKAGE}"   --entrypoint python3   "$SGLANG_IMAGE" - <<'PY'
+if ! sudo docker run --rm -i   --network host   --ipc host   --device /dev/kfd   --device /dev/dri   --group-add video   --cap-add SYS_PTRACE   --security-opt seccomp=unconfined   --security-opt label=disable   -v "${HOST_WORKDIR}:${CONTAINER_WORKDIR}"   "${ATOM_DOCKER_MOUNT_ARGS[@]}"   "${SGLANG_PATCH_MOUNT_ARGS[@]}"   -e "PYTHONPATH=${ATOM_PLUGIN_PYTHONPATH}"   -e "SGLANG_EXTERNAL_MODEL_PACKAGE=${SGLANG_EXTERNAL_MODEL_PACKAGE}"   --entrypoint python3   "$SGLANG_IMAGE" - <<'PY'
 import importlib
 import os
+import re
 import sglang
+import sglang.srt.model_loader.loader as loader
 plugin = os.environ['SGLANG_EXTERNAL_MODEL_PACKAGE']
 module = importlib.import_module(plugin)
+loader_path = getattr(loader, '__file__', '')
+loader_text = open(loader_path, encoding='utf-8').read()
+bad_mapping = re.search(r'packed_modules_mapping\.update\(\s*\{\s*"gate_up_proj": \["gate_proj", "up_proj"\],\s*"fused_qkv_a_proj_with_mqa"', loader_text)
+if bad_mapping:
+    raise SystemExit('SGLang generic quark fused_qkv_a_proj_with_mqa mapping is still active')
 print('sglang', getattr(sglang, '__version__', 'unknown'), getattr(sglang, '__file__', ''))
+print('sglang_loader', loader_path)
+print('generic_quark_fused_qkv_a_proj_with_mqa_mapping', 'disabled')
 print('PYTHONPATH', os.environ.get('PYTHONPATH', ''))
 print('external_model_package', plugin, getattr(module, '__file__', ''))
 PY
@@ -8002,14 +7965,13 @@ then
   exit 1
 fi
 
-exec sudo docker run --rm   --name "$SGLANG_CONTAINER"   --network host   --ipc host   --device /dev/kfd   --device /dev/dri   --group-add video   --cap-add SYS_PTRACE   --security-opt seccomp=unconfined   --security-opt label=disable   --shm-size 16G   --ulimit memlock=-1   --ulimit stack=67108864   -v "${HOST_WORKDIR}:${CONTAINER_WORKDIR}"   "${ATOM_DOCKER_MOUNT_ARGS[@]}"   -e "HF_TOKEN=${HF_TOKEN:-}"   -e "HF_HOME=${CONTAINER_WORKDIR}/hf-cache"   -e "SGLANG_EXTERNAL_MODEL_PACKAGE=${SGLANG_EXTERNAL_MODEL_PACKAGE}"   -e "PYTHONPATH=${ATOM_PLUGIN_PYTHONPATH}"   -e "AITER_QUICK_REDUCE_QUANTIZATION=${AITER_QUICK_REDUCE_QUANTIZATION}"   -e "SGLANG_AITER_FP8_PREFILL_ATTN=${SGLANG_AITER_FP8_PREFILL_ATTN}"   --entrypoint bash   "$SGLANG_IMAGE"   -lc 'exec "$@"'   sglang-entry   "$@"
+exec sudo docker run --rm   --name "$SGLANG_CONTAINER"   --network host   --ipc host   --device /dev/kfd   --device /dev/dri   --group-add video   --cap-add SYS_PTRACE   --security-opt seccomp=unconfined   --security-opt label=disable   --shm-size 16G   --ulimit memlock=-1   --ulimit stack=67108864   -v "${HOST_WORKDIR}:${CONTAINER_WORKDIR}"   "${ATOM_DOCKER_MOUNT_ARGS[@]}"   "${SGLANG_PATCH_MOUNT_ARGS[@]}"   -e "HF_TOKEN=${HF_TOKEN:-}"   -e "HF_HOME=${CONTAINER_WORKDIR}/hf-cache"   -e "SGLANG_EXTERNAL_MODEL_PACKAGE=${SGLANG_EXTERNAL_MODEL_PACKAGE}"   -e "PYTHONPATH=${ATOM_PLUGIN_PYTHONPATH}"   -e "AITER_QUICK_REDUCE_QUANTIZATION=${AITER_QUICK_REDUCE_QUANTIZATION}"   -e "SGLANG_AITER_FP8_PREFILL_ATTN=${SGLANG_AITER_FP8_PREFILL_ATTN}"   --entrypoint bash   "$SGLANG_IMAGE"   -lc 'exec "$@"'   sglang-entry   "$@"
 SERVE
   chmod +x "${GENERATED_SCRIPT_DIR}/glm51_serve.sh"
 }
 
 start_server() {
   load_active_model_env
-  scrub_sglang_attention_scale_inv_keys "$MODEL_DIR_HOST"
   if server_ready; then
     log "server already responding on port $SGLANG_PORT"
     cat "$RUNTIME_DIR/health.json" "$RUNTIME_DIR/model_info.json" "$RUNTIME_DIR/models.json" 2>/dev/null | head || true
@@ -8055,6 +8017,7 @@ start_server() {
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" ATOM_REPO_CONTAINER "$ATOM_REPO_CONTAINER"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" ATOM_PLUGIN_PYTHONPATH "$ATOM_PLUGIN_PYTHONPATH"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" SGLANG_EXTERNAL_MODEL_PACKAGE "$SGLANG_EXTERNAL_MODEL_PACKAGE"
+  tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ "$PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" SGLANG_SERVE_ARGS "$SGLANG_SERVE_ARGS"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" PERSIST_LOG_ROOT "${PERSIST_LOG_ROOT:-}"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" PERSIST_LOG_DIR "${PERSIST_LOG_DIR:-}"
@@ -8065,8 +8028,7 @@ start_server() {
   local target="${TMUX_SESSION}:${SERVE_WINDOW}"
   sudo docker rm -f "$SGLANG_CONTAINER" >/dev/null 2>&1 || true
   tmux -S "$TMUX_SOCKET" kill-window -t "$target" >/dev/null 2>&1 || true
-  tmux -S "$TMUX_SOCKET" new-window -t "$TMUX_SESSION" -n "$SERVE_WINDOW" -c "$HOST_WORKDIR" "${GENERATED_SCRIPT_DIR}/glm51_serve.sh; exec bash"
-  tmux -S "$TMUX_SOCKET" select-window -t "$target" || true
+  tmux -S "$TMUX_SOCKET" new-window -d -t "$TMUX_SESSION" -n "$SERVE_WINDOW" -c "$HOST_WORKDIR" "${GENERATED_SCRIPT_DIR}/glm51_serve.sh; exec bash"
 
   log "waiting for server; SGLang is running foreground in tmux window: $SERVE_WINDOW"
   for i in $(seq 1 120); do
@@ -8183,7 +8145,7 @@ run_lmeval_if_enabled() {
   local target="${TMUX_SESSION}:${LMEVAL_WINDOW}"
   sudo docker rm -f "$LMEVAL_CONTAINER" >/dev/null 2>&1 || true
   tmux -S "$TMUX_SOCKET" kill-window -t "$target" >/dev/null 2>&1 || true
-  tmux -S "$TMUX_SOCKET" new-window -t "$TMUX_SESSION" -n "$LMEVAL_WINDOW" -c "$HOST_WORKDIR" "${GENERATED_SCRIPT_DIR}/glm51_lmeval.sh; exec bash"
+  tmux -S "$TMUX_SOCKET" new-window -d -t "$TMUX_SESSION" -n "$LMEVAL_WINDOW" -c "$HOST_WORKDIR" "${GENERATED_SCRIPT_DIR}/glm51_lmeval.sh; exec bash"
   log "lm_eval started in tmux window: $LMEVAL_WINDOW"
 }
 
@@ -8311,10 +8273,11 @@ export PREP_WINDOW="${PREP_WINDOW:-prep-download-build}"
 export SERVE_WINDOW="${SERVE_WINDOW:-sglang-serve}"
 export LMEVAL_WINDOW="${LMEVAL_WINDOW:-lm-eval}"
 export SGLANG_PORT="${SGLANG_PORT:-7777}"
-export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260601-sglang-tinker-merge-quant-v3.9}"
+export GLM51_SCRIPT_VERSION="${GLM51_SCRIPT_VERSION:-markdown-20260602-sglang-quark-loader-patch-v3.11}"
 export AUTOSTART_CHECK_INTERVAL_SECONDS="${AUTOSTART_CHECK_INTERVAL_SECONDS:-60}"
 export AUTOSTART_RESUME_WINDOW="autostart-resume"
 export AUTOSTART_OBSERVE_WINDOW="autostart-observe"
+export AUTOSTART_CREATE_OBSERVE_WINDOW="${AUTOSTART_CREATE_OBSERVE_WINDOW:-0}"
 export HF_DOWNLOAD_MAX_WORKERS="${HF_DOWNLOAD_MAX_WORKERS:-8}"
 export GLM51_ENV_FILE="${GLM51_ENV_FILE:-${CONTROL_PLANE_DIR}/glm51.env}"
 export BOOTSTRAP_PATH="${BOOTSTRAP_PATH:-${CONTROL_PLANE_DIR}/bootstrap.sh}"
@@ -8586,18 +8549,21 @@ ensure_tmux_session_exists() {
     return 0
   fi
 
-  log "creating tmux session $TMUX_SESSION with observe window"
-  tmux -S "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" -n "$AUTOSTART_OBSERVE_WINDOW" -c "$HOST_WORKDIR" "$(observe_cmd)"
+  log "creating tmux session $TMUX_SESSION"
+  tmux -S "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" -n "status" -c "$HOST_WORKDIR" 'echo "[glm51] tmux session ready"; exec bash'
 }
 
 ensure_observe_window_exists() {
+  if [ "${AUTOSTART_CREATE_OBSERVE_WINDOW:-0}" != "1" ]; then
+    return 0
+  fi
   ensure_tmux_session_exists
   if window_exists "$AUTOSTART_OBSERVE_WINDOW" && window_has_live_pane "$AUTOSTART_OBSERVE_WINDOW"; then
     return 0
   fi
   log "creating tmux window $AUTOSTART_OBSERVE_WINDOW"
   tmux -S "$TMUX_SOCKET" kill-window -t "$TMUX_SESSION:$AUTOSTART_OBSERVE_WINDOW" >/dev/null 2>&1 || true
-  tmux -S "$TMUX_SOCKET" new-window -t "$TMUX_SESSION" -n "$AUTOSTART_OBSERVE_WINDOW" -c "$HOST_WORKDIR" "$(observe_cmd)"
+  tmux -S "$TMUX_SOCKET" new-window -d -t "$TMUX_SESSION" -n "$AUTOSTART_OBSERVE_WINDOW" -c "$HOST_WORKDIR" "$(observe_cmd)"
 }
 
 start_bootstrap_in_tmux() {
@@ -8617,13 +8583,13 @@ start_bootstrap_in_tmux() {
   mkdir -p "$BOOTSTRAP_TMUX_TMPDIR"
   chmod 700 "$BOOTSTRAP_TMUX_TMPDIR" || true
   local cmd
-  printf -v cmd 'echo "[autostart] running %s; log=%s; run_id=%s"; rm -f %q; if env RUN_ID=%q EXPERIMENT_NAME=%q LOG_TIMEZONE=%q PERSIST_LOG_ROOT=%q PERSIST_LOG_DIR=%q GLM51_SECRETS_FILE=%q HF_TOKEN_FILE=%q RUN_TINKER_MERGE_QUANT=%q GPU_LEASE_BASE_URL=%q LORA_DIR=%q MERGED_MODEL_DIR=%q QUANT_MODEL_DIR=%q QUANT_SCHEME=%q GLM5_REFERENCE_SCRIPTS_DIR=%q GLM5_MERGE_QUANT_GPUS=%q GLM5_MERGE_QUANT_WORKERS_PER_GPU=%q GLM5_LOCAL_QUANT_ROOT=%q %q; then date "+%%Y-%%m-%%d %%H:%%M:%%S" > %q; echo "[autostart] bootstrap completed"; else rc=$?; { date "+%%Y-%%m-%%d %%H:%%M:%%S"; echo "rc=$rc"; } > %q; echo "[autostart] bootstrap failed rc=$rc; see %s"; fi; exec bash' \
-    "$BOOTSTRAP_PATH" "$BOOTSTRAP_LOG" "${RUN_ID:-}" "$BOOTSTRAP_FAILED" "${RUN_ID:-}" "${EXPERIMENT_NAME:-}" "${LOG_TIMEZONE:-}" "${PERSIST_LOG_ROOT:-}" "${PERSIST_LOG_DIR:-}" "${GLM51_SECRETS_FILE:-}" "${HF_TOKEN_FILE:-}" "${RUN_TINKER_MERGE_QUANT:-}" "${GPU_LEASE_BASE_URL:-}" "${LORA_DIR:-}" "${MERGED_MODEL_DIR:-}" "${QUANT_MODEL_DIR:-}" "${QUANT_SCHEME:-}" "${GLM5_REFERENCE_SCRIPTS_DIR:-}" "${GLM5_MERGE_QUANT_GPUS:-}" "${GLM5_MERGE_QUANT_WORKERS_PER_GPU:-}" "${GLM5_LOCAL_QUANT_ROOT:-}" "$BOOTSTRAP_PATH" "${CONTROL_PLANE_DIR}/bootstrap.last_success" "$BOOTSTRAP_FAILED" "$BOOTSTRAP_LOG"
+  printf -v cmd 'echo "[autostart] running %s; log=%s; run_id=%s"; rm -f %q; if env RUN_ID=%q EXPERIMENT_NAME=%q LOG_TIMEZONE=%q PERSIST_LOG_ROOT=%q PERSIST_LOG_DIR=%q GLM51_SECRETS_FILE=%q HF_TOKEN_FILE=%q RUN_TINKER_MERGE_QUANT=%q GPU_LEASE_BASE_URL=%q LORA_DIR=%q MERGED_MODEL_DIR=%q QUANT_MODEL_DIR=%q QUANT_SCHEME=%q GLM5_REFERENCE_SCRIPTS_DIR=%q GLM5_MERGE_QUANT_GPUS=%q GLM5_MERGE_QUANT_WORKERS_PER_GPU=%q GLM5_LOCAL_QUANT_ROOT=%q AUTOSTART_CREATE_OBSERVE_WINDOW=%q %q; then date "+%%Y-%%m-%%d %%H:%%M:%%S" > %q; echo "[autostart] bootstrap completed"; else rc=$?; { date "+%%Y-%%m-%%d %%H:%%M:%%S"; echo "rc=$rc"; } > %q; echo "[autostart] bootstrap failed rc=$rc; see %s"; fi; exec bash' \
+    "$BOOTSTRAP_PATH" "$BOOTSTRAP_LOG" "${RUN_ID:-}" "$BOOTSTRAP_FAILED" "${RUN_ID:-}" "${EXPERIMENT_NAME:-}" "${LOG_TIMEZONE:-}" "${PERSIST_LOG_ROOT:-}" "${PERSIST_LOG_DIR:-}" "${GLM51_SECRETS_FILE:-}" "${HF_TOKEN_FILE:-}" "${RUN_TINKER_MERGE_QUANT:-}" "${GPU_LEASE_BASE_URL:-}" "${LORA_DIR:-}" "${MERGED_MODEL_DIR:-}" "${QUANT_MODEL_DIR:-}" "${QUANT_SCHEME:-}" "${GLM5_REFERENCE_SCRIPTS_DIR:-}" "${GLM5_MERGE_QUANT_GPUS:-}" "${GLM5_MERGE_QUANT_WORKERS_PER_GPU:-}" "${GLM5_LOCAL_QUANT_ROOT:-}" "${AUTOSTART_CREATE_OBSERVE_WINDOW:-0}" "$BOOTSTRAP_PATH" "${CONTROL_PLANE_DIR}/bootstrap.last_success" "$BOOTSTRAP_FAILED" "$BOOTSTRAP_LOG"
 
   log "starting bootstrap/redownload in tmux: sudo tmux -S $BOOTSTRAP_TMUX_SOCKET attach -t $BOOTSTRAP_TMUX_SESSION"
   if tmux -S "$BOOTSTRAP_TMUX_SOCKET" has-session -t "$BOOTSTRAP_TMUX_SESSION" 2>/dev/null; then
     tmux -S "$BOOTSTRAP_TMUX_SOCKET" kill-window -t "$BOOTSTRAP_TMUX_SESSION:$BOOTSTRAP_WINDOW" >/dev/null 2>&1 || true
-    tmux -S "$BOOTSTRAP_TMUX_SOCKET" new-window -t "$BOOTSTRAP_TMUX_SESSION" -n "$BOOTSTRAP_WINDOW" -c "$GLM51_OPT_DIR" "$cmd"
+    tmux -S "$BOOTSTRAP_TMUX_SOCKET" new-window -d -t "$BOOTSTRAP_TMUX_SESSION" -n "$BOOTSTRAP_WINDOW" -c "$GLM51_OPT_DIR" "$cmd"
   else
     tmux -S "$BOOTSTRAP_TMUX_SOCKET" new-session -d -s "$BOOTSTRAP_TMUX_SESSION" -n "$BOOTSTRAP_WINDOW" -c "$GLM51_OPT_DIR" "$cmd"
   fi
@@ -8661,12 +8627,15 @@ start_resume_in_tmux() {
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" GLM5_MERGE_QUANT_GPUS "${GLM5_MERGE_QUANT_GPUS:-}"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" GLM5_MERGE_QUANT_WORKERS_PER_GPU "${GLM5_MERGE_QUANT_WORKERS_PER_GPU:-}"
   tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" GLM5_LOCAL_QUANT_ROOT "${GLM5_LOCAL_QUANT_ROOT:-}"
+  tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" AITER_QUICK_REDUCE_QUANTIZATION "${AITER_QUICK_REDUCE_QUANTIZATION:-}"
+  tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" SGLANG_AITER_FP8_PREFILL_ATTN "${SGLANG_AITER_FP8_PREFILL_ATTN:-}"
+  tmux -S "$TMUX_SOCKET" set-environment -t "$TMUX_SESSION" PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ "${PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ:-}"
   log "creating tmux window $AUTOSTART_RESUME_WINDOW for resume"
   local resume_cmd
   printf -v resume_cmd 'echo "[autostart] running generated glm51_resume.sh: %s"; %q; exec bash' \
     "${GENERATED_SCRIPT_DIR}/glm51_resume.sh" \
     "${GENERATED_SCRIPT_DIR}/glm51_resume.sh"
-  tmux -S "$TMUX_SOCKET" new-window -t "$TMUX_SESSION" -n "$AUTOSTART_RESUME_WINDOW" -c "$HOST_WORKDIR" "$resume_cmd"
+  tmux -S "$TMUX_SOCKET" new-window -d -t "$TMUX_SESSION" -n "$AUTOSTART_RESUME_WINDOW" -c "$HOST_WORKDIR" "$resume_cmd"
 }
 
 main_loop() {
@@ -8674,7 +8643,7 @@ main_loop() {
     if ensure_local_nvme_mounted; then
       ensure_observe_window_exists || true
       if endpoint_ready; then
-        log "endpoint ready on port $SGLANG_PORT; tmux observe window ensured"
+        log "endpoint ready on port $SGLANG_PORT"
       else
         log "endpoint not ready; ensuring resume is running in tmux"
         start_resume_in_tmux || true
@@ -8814,7 +8783,7 @@ if command -v tmux >/dev/null 2>&1; then
     tmux -S "$TMUX_SOCKET" kill-window -t "${TMUX_SESSION}:${PREP_WINDOW:-prep-download-build}" >/dev/null 2>&1 || true
     tmux -S "$TMUX_SOCKET" kill-window -t "${TMUX_SESSION}:${SERVE_WINDOW:-sglang-serve}" >/dev/null 2>&1 || true
     tmux -S "$TMUX_SOCKET" kill-window -t "${TMUX_SESSION}:${LMEVAL_WINDOW:-lm-eval}" >/dev/null 2>&1 || true
-    tmux -S "$TMUX_SOCKET" new-window -t "$TMUX_SESSION" -n "resume" -c "$HOST_WORKDIR" "$RESUME_TMUX_CMD"
+    tmux -S "$TMUX_SOCKET" new-window -d -t "$TMUX_SESSION" -n "resume" -c "$HOST_WORKDIR" "$RESUME_TMUX_CMD"
   else
     tmux -S "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" -c "$HOST_WORKDIR" "$RESUME_TMUX_CMD"
   fi
@@ -8893,6 +8862,8 @@ sudo install -m 0600 /dev/null "$GLM51_ENV_FILE"
 ' "$FIRST_RUN_LOG_COPY_TIMEOUT_SECONDS"
   printf 'COPY_FIRST_RUN_LOG_TO_LOCAL_NVME=%q
 ' "$COPY_FIRST_RUN_LOG_TO_LOCAL_NVME"
+  printf 'AUTOSTART_CREATE_OBSERVE_WINDOW=%q
+' "$AUTOSTART_CREATE_OBSERVE_WINDOW"
   printf 'SGLANG_IMAGE=%q
 ' "$SGLANG_IMAGE"
   printf 'ATOM_REPO_URL=%q
@@ -8909,6 +8880,12 @@ sudo install -m 0600 /dev/null "$GLM51_ENV_FILE"
 ' "$ATOM_PLUGIN_PYTHONPATH"
   printf 'SGLANG_EXTERNAL_MODEL_PACKAGE=%q
 ' "$SGLANG_EXTERNAL_MODEL_PACKAGE"
+  printf 'AITER_QUICK_REDUCE_QUANTIZATION=%q
+' "$AITER_QUICK_REDUCE_QUANTIZATION"
+  printf 'SGLANG_AITER_FP8_PREFILL_ATTN=%q
+' "$SGLANG_AITER_FP8_PREFILL_ATTN"
+  printf 'PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ=%q
+' "$PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ"
   printf 'RUN_TINKER_MERGE_QUANT=%q
 ' "$RUN_TINKER_MERGE_QUANT"
   printf 'GPU_LEASE_BASE_URL=%q
@@ -8977,6 +8954,7 @@ sudo env \
   SGLANG_EXTERNAL_MODEL_PACKAGE="$SGLANG_EXTERNAL_MODEL_PACKAGE" \
   AITER_QUICK_REDUCE_QUANTIZATION="$AITER_QUICK_REDUCE_QUANTIZATION" \
   SGLANG_AITER_FP8_PREFILL_ATTN="$SGLANG_AITER_FP8_PREFILL_ATTN" \
+  PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ="$PATCH_SGLANG_QUARK_FUSED_QKV_A_PROJ" \
   INSTALL_SYSTEMD_AUTOSTART="$INSTALL_SYSTEMD_AUTOSTART" \
   AUTOSTART_SERVICE_NAME="$AUTOSTART_SERVICE_NAME" \
   AUTOSTART_CHECK_INTERVAL_SECONDS="$AUTOSTART_CHECK_INTERVAL_SECONDS" \
@@ -8988,6 +8966,7 @@ sudo env \
   LOG_TIMEZONE="$LOG_TIMEZONE" \
   FIRST_RUN_LOG_COPY_TIMEOUT_SECONDS="$FIRST_RUN_LOG_COPY_TIMEOUT_SECONDS" \
   COPY_FIRST_RUN_LOG_TO_LOCAL_NVME="$COPY_FIRST_RUN_LOG_TO_LOCAL_NVME" \
+  AUTOSTART_CREATE_OBSERVE_WINDOW="$AUTOSTART_CREATE_OBSERVE_WINDOW" \
   AUTO_FIX_DOCKER_CACHE="$AUTO_FIX_DOCKER_CACHE" \
   AUTO_FREE_SPACE="$AUTO_FREE_SPACE" \
   AUTO_DELETE_MODEL_IF_LOW_SPACE="$AUTO_DELETE_MODEL_IF_LOW_SPACE" \
