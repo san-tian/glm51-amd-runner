@@ -841,6 +841,13 @@ export HOST_TMPDIR="${HOST_TMPDIR:-${HOST_WORKDIR}/host-tmp}"
 export MODEL_ID="${MODEL_ID:-zai-org/GLM-5.1-FP8}"
 export MODEL_REVISION="${MODEL_REVISION:-f396cf805182f4ca10fa675e1a99815b3ca384db}"
 export MODEL_DIR="${MODEL_DIR:-${CONTAINER_WORKDIR}/models/GLM-5.1-FP8}"
+# merge 必须用 BF16 base，不能用上面的 FP8 MODEL_DIR。
+# 用 FP8 当 merge base 会透传 q_a_proj/kv_a_proj_with_mqa 的 weight_scale_inv，
+# 与量化 config 把这两层标为“不量化”冲突，serve 加载时报
+# KeyError: ...fused_qkv_a_proj_with_mqa.weight_scale_inv。
+export BASE_MODEL_ID="${BASE_MODEL_ID:-zai-org/GLM-5.1}"
+export BASE_MODEL_REVISION="${BASE_MODEL_REVISION:-main}"
+export BASE_MODEL_DIR="${BASE_MODEL_DIR:-${CONTAINER_WORKDIR}/models/GLM-5.1-bf16}"
 export SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-${MODEL_ID}}"
 export RUN_TINKER_MERGE_QUANT="${RUN_TINKER_MERGE_QUANT:-auto}"
 export GPU_LEASE_BASE_URL="${GPU_LEASE_BASE_URL:-https://eval-service.macaron.im}"
@@ -1112,6 +1119,7 @@ host_path_for_container_path() {
 }
 
 MODEL_DIR_HOST="$(host_path_for_container_path "$MODEL_DIR")"
+BASE_MODEL_DIR_HOST="$(host_path_for_container_path "$BASE_MODEL_DIR")"
 LORA_DIR_HOST="$(host_path_for_container_path "$LORA_DIR")"
 MERGED_MODEL_DIR_HOST="$(host_path_for_container_path "$MERGED_MODEL_DIR")"
 QUANT_MODEL_DIR_HOST="$(host_path_for_container_path "$QUANT_MODEL_DIR")"
@@ -7354,6 +7362,60 @@ download_model() {
   log "model ready"
 }
 
+# 下载 BF16 base（merge 用），并强制校验它不是量化模型。
+download_merge_base() {
+  log "download/refresh BF16 merge base: $BASE_MODEL_ID@$BASE_MODEL_REVISION -> $BASE_MODEL_DIR"
+  sudo mkdir -p "$BASE_MODEL_DIR_HOST"
+  sudo chown -R "$(id -u):$(id -g)" "$BASE_MODEL_DIR_HOST" || true
+
+  sudo docker run --rm -i \
+    --name glm51-base-model-download \
+    -e "HF_TOKEN=${HF_TOKEN:-}" \
+    -e "HF_HOME=${CONTAINER_WORKDIR}/hf-cache" \
+    -e HF_XET_HIGH_PERFORMANCE=1 \
+    -e "HF_DOWNLOAD_MAX_WORKERS=${HF_DOWNLOAD_MAX_WORKERS}" \
+    -e "MODEL_ID=${BASE_MODEL_ID}" \
+    -e "MODEL_REVISION=${BASE_MODEL_REVISION}" \
+    -e "MODEL_DIR=${BASE_MODEL_DIR}" \
+    -v "${HOST_WORKDIR}:${CONTAINER_WORKDIR}" \
+    --entrypoint python3 \
+    "$BASE_IMAGE" \
+    - <<'PY'
+import inspect
+import os
+
+from huggingface_hub import snapshot_download
+
+token = os.environ.get("HF_TOKEN") or None
+revision = os.environ["MODEL_REVISION"]
+print(f"SNAPSHOT_DOWNLOAD_REVISION {revision}")
+
+kwargs = {
+    "repo_id": os.environ["MODEL_ID"],
+    "revision": revision,
+    "local_dir": os.environ["MODEL_DIR"],
+    "token": token,
+    "max_workers": int(os.environ.get("HF_DOWNLOAD_MAX_WORKERS", "8")),
+}
+sig = inspect.signature(snapshot_download)
+if "resume_download" in sig.parameters:
+    kwargs["resume_download"] = True
+if "local_dir_use_symlinks" in sig.parameters:
+    kwargs["local_dir_use_symlinks"] = False
+
+path = snapshot_download(**kwargs)
+print(f"SNAPSHOT_DOWNLOAD_OK {path}")
+PY
+
+  [ -s "$BASE_MODEL_DIR_HOST/config.json" ] || fail "merge base download incomplete: missing $BASE_MODEL_DIR_HOST/config.json"
+  # 守卫：merge base 必须是 BF16。带 quantization_config 的（FP8/quark）会让 serve 加载时
+  # 报 KeyError: ...fused_qkv_a_proj_with_mqa.weight_scale_inv。
+  if grep -q '"quantization_config"' "$BASE_MODEL_DIR_HOST/config.json"; then
+    fail "merge base must be BF16, but $BASE_MODEL_DIR has quantization_config (looks like FP8/quark); set BASE_MODEL_ID to zai-org/GLM-5.1"
+  fi
+  log "BF16 merge base ready"
+}
+
 scrub_sglang_attention_scale_inv_keys() {
   fail "checkpoint attention scale scrubbing is disabled; use the SGLang quark loader runtime patch instead"
 }
@@ -7362,7 +7424,8 @@ run_glm5_reference_merge_quant() {
   log "run glm5-fp8-deploy reference merge+quant scripts without editing their implementation"
   install_glm5_reference_scripts
   check_glm5_reference_amd_runtime
-  download_model
+  # 只下 BF16 merge base；不下载官方 FP8（merge 用 BF16、serve 用 quant 产物，FP8 用不到）。
+  download_merge_base
 
   local tinker_body tinker_weight_path tinker_weight_name effective_fp8
   local local_quant_root_host
@@ -7395,7 +7458,7 @@ run_glm5_reference_merge_quant() {
     -v "${GLM5_REFERENCE_SCRIPTS_DIR}:${scripts_container}:ro" \
     -e "GPU_LEASE_BASE_URL=${GPU_LEASE_BASE_URL}" \
     -e "GPU_LEASE_API_KEY=${GPU_LEASE_API_KEY}" \
-    -e "GLM5_BASE=${MODEL_DIR}" \
+    -e "GLM5_BASE=${BASE_MODEL_DIR}" \
     -e "GLM5_ADAPTER_ROOT=$(dirname "$LORA_DIR")" \
     -e "GLM5_LOCAL_QUANT_ROOT=${GLM5_LOCAL_QUANT_ROOT}" \
     -e "GLM5_FP8_SHARDWISE=${GLM5_FP8_SHARDWISE:-1}" \
@@ -7446,7 +7509,7 @@ PY
     glm5-reference \
     "${scripts_container}/merge_quant_serve_glm51_fp8.sh" \
       --tinker-url "$TINKER_URL" \
-      --base "$MODEL_DIR" \
+      --base "$BASE_MODEL_DIR" \
       --lora "$LORA_DIR" \
       --merged "$MERGED_MODEL_DIR" \
       --fp8 "$QUANT_MODEL_DIR" \
